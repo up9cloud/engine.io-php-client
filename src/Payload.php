@@ -9,9 +9,9 @@ use ElephantIO\Payload\Encoder;
  */
 class Payload {
 	static function encode ($data) {
-		return (string) new Encoder($data, Encoder::OPCODE_TEXT, true);
+		return @(string) new Encoder($data, Encoder::OPCODE_TEXT, true);
 	}
 	static function decode ($payload) {
-		return (string) new Decoder($payload);
+		return @(string) new Decoder($payload);
 	}
 }

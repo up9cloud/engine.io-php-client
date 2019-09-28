@@ -29,7 +29,7 @@ final Class Client implements ClientInterface {
 		'ping',
 		'pong'
 	);
-	function __construct($uri = null, $options=[], $debug_callback=null) {
+	function __construct(?string $uri = null, array $options = [], $debug_callback = null) {
 		$this->conn = new Transport($uri, $options, $debug_callback);
 		$this->conn->connect();
 	}
@@ -37,10 +37,9 @@ final Class Client implements ClientInterface {
 	 * [send description]
 	 * @param  string $data     [description]
 	 * @param  array  $options  [description]
-	 * @param  [type] $callback [description]
 	 * @return void
 	 */
-	public function send($data, $options = []) {
+	public function send(string $data, array $options = []) {
 		$encoded = Payload::encode(Packet::encode(Type::MESSAGE, $data));
 		$this->conn->write($encoded);
 		$res = $this->conn->read();
