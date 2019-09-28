@@ -1,6 +1,6 @@
 <?php
 
-namespace eio\Packet;
+namespace eio;
 
 final Class Type {
 	const OPEN = 0;

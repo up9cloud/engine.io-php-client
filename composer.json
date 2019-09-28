@@ -1,10 +1,10 @@
 {
     "name": "up9cloud/engine.io-php-client",
-    "version": "1.0.0",
-    "description": "php communicate with socketio/engine.io server.",
-    "keywords": ["nodejs", "iojs", "websocket", "socket.io", "engine.io"],
+    "version": "2.0.0",
+    "description": "The php client for [engine.io](https://github.com/socketio/engine.io).",
+    "keywords": ["websocket", "socket.io", "engine.io"],
     "require": {
-        "php": ">=5.5.9",
+        "php": ">=7",
         "wisembly/elephant.io": "~3.0"
     },
     "require-dev": {

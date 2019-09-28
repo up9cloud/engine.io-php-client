@@ -3,12 +3,11 @@
 // same as engine.io javascript client global namespace.
 namespace eio;
 
-use eio\Packet\Type;
 use ElephantIO\Payload\Decoder;
 use ElephantIO\Payload\Encoder;
 
 final Class Client implements ClientInterface {
-	private $conn = null;
+	private $conn;
 	/**
 	 * event callbacks.
 	 * @var array
@@ -32,16 +31,7 @@ final Class Client implements ClientInterface {
 	);
 	function __construct($uri = null, $options=[], $debug_callback=null) {
 		$this->conn = new Transport($uri, $options, $debug_callback);
-	}
-	function __destruct(){
-		$this->close();
-	}
-	protected function write($code, $data){
-		$encoded=new Encoder(4 . $data, Encoder::OPCODE_TEXT, true);
-		$this->conn->write((string) $encoded);
-	}
-	protected function read(){
-		$this->conn->read();
+		$this->conn->connect();
 	}
 	/**
 	 * [send description]
@@ -50,12 +40,17 @@ final Class Client implements ClientInterface {
 	 * @param  [type] $callback [description]
 	 * @return void
 	 */
-	public function send($data, $options = ['compress'=>true], $callback = null) {
-		$this->write(Type::MESSAGE, $data);
-		$response=$this->read();
-		if($callback){
-			$callback($response);
-		}
+	public function send($data, $options = []) {
+		$encoded = Payload::encode(Packet::encode(Type::MESSAGE, $data));
+		$this->conn->write($encoded);
+		$res = $this->conn->read();
+		return json_decode(Payload::decode($res), true);
+	}
+	public function ping() {
+		$encoded = Payload::encode(Packet::encode(Type::PING));
+		$this->conn->write($encoded);
+		$res = $this->conn->read();
+		return json_decode(Payload::decode($res), true);
 	}
 	/**
 	 * bind events.
@@ -71,5 +66,6 @@ final Class Client implements ClientInterface {
 	}
 	public function close() {
 		$this->conn->close();
+		unset($this->conn);
 	}
 }

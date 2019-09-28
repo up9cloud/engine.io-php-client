@@ -2,168 +2,260 @@
 
 namespace eio;
 
-use eio\Curl\Curl;
-use eio\Packet\Type;
-
-use ElephantIO\Payload\Decoder;
 /**
- * protocal:
+ * Protocol:
  * https://github.com/socketio/engine.io-protocol
  *
- * TODO support other official transports:
- *      flashsocket
- *      polling {jsonp|xhr}
- *
- * websocket encode, decode
- * see https://github.com/socketio/engine.io-client
- *
- * @example $trans = new Transport('ws://localhost:9527');
- *          $trans->send('helloworld');
+ * TODO: support other official transports:
+ *       polling
+ *       - jsonp
+ *       - xhr
  */
-Class Transport {
+Class Transport implements TraspoterInterface{
 	/**
 	 * for debug
 	 * @var integer second
 	 */
-	private $timestamp = 0;
+	private $start_time = 0;
 	/**
 	 * callback for showing debug message.
 	 * @var clousre
 	 */
+	private $debug = false;
 	private $debug_callback = null;
-	/**
-	 * connection default settings.
-	 */
-	private $uri = '';
-	private $host = 'localhost';
-	private $port = 80;
 	/**
 	 * socket resource.
 	 * @var resource
 	 */
 	private $socket = null;
-	/**
-	 * socket service
-	 * @var string Sockets(extension), stream(stream_socket_create), fsock(fsockopen)
-	 */
-	private $socket_service = 'Sockets';
-	/**
-	 * socket connect timeout.
-	 * @var float second
-	 */
-	private $connection_timeout = 3.0;
-	/**
-	 * stream socket wait timeout.
-	 * it usually can't less than 1000 (localhost)
-	 * 
-	 * @var integer ms
-	 */
-	private $stream_wait_timeout = 3000;
-	/**
-	 * prefer transport.
-	 * @var string
-	 */
-	private $transport = 'websocket';
-	private $user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.89 Safari/537.36';
-	private $isSecure = false;
-	private $jsonp_index = '';
-	/**
-	 * engine.io client settins.
-	 * see https://github.com/socketio/engine.io-client
-	 */
-	private $valid_transports = array(
-		'websocket',
-		'polling',
-		'flashsocket'
-	);
-	/**
-	 * engine.io protocol version
-	 * @var integer
-	 */
-	public $protocol = 3;
-	public $binaryType = '';
-	/**
-	 * engine.io init client settings.
-	 */
-	private $agent = false;
-	private $upgrade = true;
-	private $forceJSONP = false;
-	private $jsonp = false;
-	private $forceBase64 = false;
-	private $enablesXDR = false;
-	private $timestampRequests = false;
-	private $timestampParam = 't';
-	private $policyPort = 843;
-	private $path = '/engine.io';
-	private $transports = ['polling', 'websocket'];
-	private $rememberUpgrade = false;
-	private $pfx = '';
-	private $key = '';
-	private $passphrase = '';
-	private $cert = '';
-	private $ca = '';
-	private $ciphers = '';
-	private $rejectUnauthorized = false;
-	private $perMessageDeflate = true;
-	private $extraHeaders = [];
-	/**
-	 * engine.io server first response
-	 */
-	private $sid = '';
-	private $pingInterval = 25000;
-	private $pingTimeout = 60000;
-	function __construct($uri = null, $options = ['socket_service'=>'Sockets'], $debug_callback = null) {
-		$this->timestamp = microtime(true);
-		if ($uri) {
-			$this->uri = $uri;
-			$uri_info = parse_url($uri);
-			if (isset($uri_info['host'])) {
-				$this->host = & $uri_info['host'];
-			}
-			if (isset($uri_info['port'])) {
-				$this->port = & $uri_info['port'];
-			}
-			if (isset($uri_info['path'])) {
-				$this->path = & $uri_info['path'];
+	private $fp_errno = null;
+	private $fp_errstr = null;
+	private $options = [
+		/**
+		 * connection default settings.
+		 */
+		'dsl' => null,
+		'host' => 'localhost',
+		'port' => 80,
+		'path' => '/engine.io/', // must be /engine.io/, can't be /engine.io
+		/**
+		 * socket_create: php extension "sockets"
+		 * stream_socket_create
+		 * fsockopen: TODO: fix ping failed
+		 */
+		'connect_method' => 'stream_socket_create',
+		/**
+		 * socket connect timeout.
+		 * @var float second
+		 */
+		'connection_timeout' => 3.0,
+		/**
+		 * stream socket wait timeout.
+		 * it usually can't less than 1000 (localhost)
+		 * 
+		 * @var integer ms
+		 */
+		'stream_wait_timeout' => 3000,
+		'user_agent' => 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
+		'is_secure' => false,
+		/**
+		 * engine.io protocol version
+		 * @var integer
+		 */
+		'version' => 3,
+		/**
+		 * engine.io handshake variables
+		 */
+		'sid' => null,
+		'upgrades' => [],
+		'pingInterval' => 25000,
+		'pingTimeout' => 60000,
+		/**
+		 * engin.io url and query parameters
+		 */
+		// 'path' => '/engine.io',
+		'transport' => 'polling', // init with polling
+		'transports' => ['polling', 'websocket'],
+		'j' => 'callback',
+		// 'sid' => null,
+		'b64' => null,
+		/**
+		 * engine.io client settings
+		 */
+		'jsonp' => false,
+		'timestampRequests' => true,
+		'timestampParam' => 't',
+		'key' => null,
+	];
+	function __construct($dsl = null, $options = [], $debug_callback = null) {
+		$this->start_time = microtime(true);
+		if (isset($dsl)) {
+			$this->options['dsl'] = $dsl;
+			$parsed = parse_url($dsl);
+			foreach ([
+				'host',
+				'port',
+				'path',
+			] as $key) {
+				if (isset($parsed[$key])) {
+					$this->options[$key] = & $parsed[$key];
+				}
 			}
 		}
-		if ($debug_callback) {
-			$this->setDebugCallback($debug_callback);
+		if ($debug_callback === true) {
+			$this->debug = true; // default debugger
+		} else if ($debug_callback) {
+			$this->debug_callback = $debug_callback; // custom debugger function
 		}
-		if(isset($options['socket_service'])){
-			$this->socket_service = $options['socket_service'];
-		}
-		$this->connect();
-	}
-	/**
-	 * @example
-	 * $this->setDebugCallback(function($message, $time){
-	 *     printf('$s: %f', $message, $time);
-	 * })
-	 * @param  closure $callback
-	 * @return void
-	 */
-	public function setDebugCallback($callback) {
-		$this->debug_callback = $callback;
-	}
-	private function debug($message) {
-		if ($this->debug_callback) {
-			$time = microtime(true) - $this->timestamp;
-			call_user_func($this->debug_callback, $message, $time);
+		if($options){
+			$this->options = array_merge($this->options, $options);
 		}
 	}
-	public function write($data) {
-		switch ($this->transport) {
-			case 'polling':
-				$url = sprintf('%s://%s%s', $this->getSchema() , $this->host, $this->port, $this->path, http_build_query($this->getQueryParameters()));
-				Curl::post($url, $data);
-			break;
+	function __destruct(){
+		if (isset($this->socket)) {
+			$this->close();
+		}
+	}
+	private function debug($template, ...$args) {
+		if (isset($this->debug_callback)) {
+			$time = microtime(true) - $this->start_time;
+			call_user_func($this->debug_callback, $time, ...$args);
+		} else if ($this->debug) {
+			$time = microtime(true) - $this->start_time;
+			error_log(sprintf('[%.4f]' . $template, $time, ...$args));
+		}
+	}
+	function connect() {
+		if ($this->options['transport'] === 'polling') {
+			$this->debug('[%s] start', 'handshake');
+			$this->handshake();
+			$this->debug('[%s] end', 'handshake');
+		}
+		if (in_array('websocket', $this->options['upgrades'])) {
+			$this->options['transport'] = 'websocket';
+			$this->debug('[%s] start', 'upgradeTransport');
+			$r = $this->upgradeTransport();
+			$this->debug('[%s] end (%s)', 'upgradeTransport', $r);
+
+			$this->debug('[%s] start', 'ping');
+			$this->write(Payload::encode(Packet::encode(Type::PING, 'probe')));
+			$r = Payload::decode($this->read());
+			$this->debug('[%s] end (%s)', 'ping', $r);
+
+			$this->debug('[%s] start', 'write upgrade signal to socket');
+			// $this->write(Packet::encode(Type::UPGRADE));
+			$this->write(Payload::encode(Packet::encode(Type::UPGRADE)));
+			// remove message '40' from buffer
+			if ($this->options['version'] === 2) {
+				$r = Payload::decode($this->read());
+			} else {
+				$r = null;
+			}
+			$this->debug('[%s] end (%s)', 'write upgrade signal to socket', $r);
+		}
+	}
+	private function handshake() {
+		$response = Curl::get($this->buildPollingUri());
+		$decoded = Packet::decodePayload($response);
+		$result = $decoded[0]; // only one result
+		if ($result[0] !== Type::OPEN) {
+			throw new \Exception(sprintf('handshake receive invalid type: %s', $result[0]));
+		}
+		$data = $result[1];
+		if (!isset($data)) {
+			return;
+		}
+		$data = json_decode($data, true);
+		foreach ([
+			'sid',
+			'upgrades',
+			'pingInterval',
+			'pingTimeout'
+		] as $key) {
+			if (isset($data[$key])) {
+				$this->options[$key] = $data[$key];
+			}
+		}
+	}
+	private function upgradeTransport () {
+		$this->debug('[%s] start', 'upgradeTransport connectSocket');
+		$this->connectSocket();
+		$this->debug('[%s] end', 'upgradeTransport connectSocket');
+
+		$this->debug('[%s] start', 'upgradeTransport write');
+		$this->write($this->buildWebsocketHeader());
+		$this->debug('[%s] end', 'upgradeTransport write');
+
+		//check if it's 101 switch
+		$expect = 'HTTP/1.1 101';
+		$length = strlen($expect);
+		$response = $this->read($length);
+		$compare = substr($response, 0, $length);
+		if ($expect !== $compare) {
+			throw new \UnexpectedValueException(sprintf('The server returned an unexpected value. Expected "HTTP/1.1 101", had "%s"', $compare));
+		}
+		return $this->read(); // cleaning up body
+	}
+	private function connectSocket () {
+		if (!isset($this->options['key'])) {
+			$this->options['key'] = $this->randomKey();
+		}
+		switch ($this->options['connect_method']) {
+			case 'socket_create':
+				$socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+				if($socket === false){
+					$errorcode = socket_last_error();
+					$errormsg = socket_strerror($errorcode);
+					throw new \ErrorException("socket_create() failed: [$errorcode] $errormsg", 1);
+				}
+				$this->socket = $socket;
+				$ip = gethostbyname($this->options['host']);
+				$port = $this->options['port'];
+				if (!socket_connect($this->socket, $ip, $port)) {
+					$errorcode = socket_last_error();
+					$errormsg = socket_strerror($errorcode);
+					throw new \ErrorException("socket_connect to $ip:$port failed: [$errorcode] $errormsg", 1);
+				}
+				break;
+			case 'fsockopen':
+				$fp = fsockopen($this->options['host'], $this->options['port'], $this->fp_errno, $this->fp_errstr, 30);
+				if (!$fp) {
+					throw new \ErrorException($this->fp_errstr . ' (' . $this->fp_errno . ')');
+				}
+				$this->socket = $fp;
+				break;
+			case 'stream_socket_create':
+			case 'stream_socket_client':
 			default:
-				switch ($this->socket_service) {
-					case 'Sockets':
+				if ($this->options['is_secure']) {
+					$uri = sprintf('ssl://%s:%s', $this->options['host'], $this->options['port']);
+				} else {
+					$uri = sprintf('%s:%s', $this->options['host'], $this->options['port']);
+					// $uri = sprintf('tcp://%s:%s', $this->options['host'], $this->options['port']);
+				}
+				$fp = stream_socket_client($uri, $this->fp_errno, $this->fp_errstr, $this->options['connection_timeout'], STREAM_CLIENT_CONNECT);
+				if (!$fp) {
+					throw new \ErrorException($this->fp_errstr . ' (' . $this->fp_errno . ')');
+				}
+				// stream_set_blocking($fp, 1);
+				stream_set_timeout($fp, 0, $this->options['stream_wait_timeout']);
+				$this->socket = $fp;
+				break;
+		}
+	}
+	function write($data) {
+		switch ($this->options['transport']) {
+			case 'polling':
+				Curl::post($this->buildPollingUri(), $data);
+				break;
+			default:
+				switch ($this->options['connect_method']) {
+					case 'socket_create':
 						socket_write($this->socket, $data, strlen($data));
 						break;
-					case 'stream':
+					case 'fsockopen':
+					case 'stream_socket_create':
+					case 'stream_socket_client':
 					default:
 						$written = fwrite($this->socket, $data);
 						if ($written < strlen($data)) {
@@ -179,28 +271,34 @@ Class Transport {
 	 * @param  integer $length length=0 means read all!
 	 * @return [type]          [description]
 	 */
-	public function read($length = 0) {
+	function read($length = 0) {
 		$response = '';
 		$fregment = 1024;
-		switch ($this->transport) {
+		switch ($this->options['transport']) {
 			case 'polling':
-				//TODO
-				
-			break;
+				// Noop
+			return;
 			default:
-				switch ($this->socket_service) {
-					case 'Sockets':
+				switch ($this->options['connect_method']) {
+					case 'socket_create':
 						if($length){
 							// we cant wait all, otherwise websocket stream will be blocked.
 							// $response=socket_read($this->socket, $length);
 							$bytes = socket_recv($this->socket, $response, $length, MSG_PEEK);
+							if ($bytes === false) {
+								$errorcode = socket_last_error();
+								$errormsg = socket_strerror($errorcode);
+								throw new \ErrorException("socket_recv failed: [$errorcode] $errormsg", 1);
+							}
 						}else{
 							while (0 != socket_recv($this->socket, $buffer, $fregment, MSG_DONTWAIT)) {
 								if ($buffer != null) $response .= $buffer;
 							};
 						}
 						break;
-					case 'stream':
+					case 'fsockopen':
+					case 'stream_socket_create':
+					case 'stream_socket_client':
 					default:
 						//   do {
 						//     $buffer = stream_get_line($this->socket, $fregment, "\r\n");
@@ -209,240 +307,182 @@ Class Transport {
 						//   } while (!feof($this->socket) && $metadata['unread_bytes'] > 0);
 						if($length){
 							$response=fread($this->socket, $length);
-						}else{
-							$response=fgets($this->socket);
+						} else {
+							do {
+								$buf = fgets($this->socket);
+								$response .= $buf;
+							} while ('' !== trim($buf));
 						}
-						// cleaning up the stream
-						// while ('' !== trim(fgets($this->socket))) {
-						// }
 						break;
 				}
 			break;
 		}
 		return $response;
 	}
-	public function close() {
-		switch ($this->transport) {
+	function close() {
+		if (!isset($this->socket)) {
+			return;
+		}
+		switch ($this->options['transport']) {
 			case 'polling':
-				//TODO
-				
+			//Noop
 			break;
 			default:
-				switch ($this->socket_service) {
-					case 'Sockets':
+				$this->write(Payload::encode(Packet::encode(Type::CLOSE)));
+				switch ($this->options['connect_method']) {
+					case 'socket_create':
 						socket_close($this->socket);
 						break;
-					case 'stream':
+					case 'fsockopen':
+					case 'stream_socket_create':
+					case 'stream_socket_client':
 					default:
 						fclose($this->socket);
 						break;
 				}
 			break;
 		}
+		unset($this->socket);
 	}
-	private function getSchema() {
-		if ($this->transport === 'websocket') {
+	private function buildSchema() {
+		if ($this->options['transport'] === 'websocket') {
 			$schema = 'ws';
-		} 
-		else {
+		} else {
 			$schema = 'http';
 		}
-		if ($this->isSecure) {
+		if ($this->options['is_secure']) {
 			$schema.= 's';
 		}
 		return $schema;
 	}
-	private function getUri() {
-		return $this->getSchema() . '://' . $this->host . ':' . $this->port . $this->path . '?' . http_build_query($this->getQueryParameters());
+	private function buildPollingUri() {
+		$query = $this->buildQuery();
+		$query['transport'] = 'polling';
+		return sprintf(
+			'%s://%s:%d%s%s',
+			$this->options['is_secure'] ? 'https' : 'http',
+			$this->options['host'],
+			$this->options['port'],
+			$this->options['path'],
+			empty($query) ? '' : '?' . http_build_query($query)
+		);
 	}
-	/**
-	 * for fsockopen
-	 * @return [type] [description]
-	 */
-	private function getHostUri() {
-		if ($this->isSecure) {
-			$schema = 'ssl';
-		} 
-		else {
-			// $schema = '';
-			$schema = 'tcp';
-			// $schema = 'udp';
-			
-			
-		}
-		return $schema . '://' . $this->host . ':' . $this->port;
-	}
-	private function getQueryParameters() {
-		$query = ['EIO' => $this->protocol, 'transport' => $this->transport];
-		if ($this->transport === 'polling') {
-			if ($this->forceJSONP) {
-				$query['j'] = $this->jsonp_index;
-			} 
-			elseif ($this->jsonp) {
-				$query['j'] = $this->jsonp_index;
+	private function buildQuery() {
+		$query = [
+			'EIO' => $this->options['version'],
+			'transport' => $this->options['transport']
+		];
+		if ($this->options['transport'] === 'polling') {
+			if ($this->options['jsonp'] && isset($this->options['j'])) {
+				$query['j'] = $this->options['j'];
 			}
 		}
-		if ($this->sid) {
-			$query['sid'] = $this->sid;
+		if (isset($this->options['sid'])) {
+			$query['sid'] = $this->options['sid'];
 		}
-		if ($this->timestampRequests) {
-			$query[$this->timestampParam] = time();
+		if ($this->options['timestampRequests']) {
+			$query[$this->options['timestampParam']] = time();
 		}
 		return $query;
 	}
-	private function parseResponse($response) {
-		//simple way to parse response.
-		// $response = json_decode(substr($response, strpos($response, '{')), true);
-		$response = (string)new Decoder($response);
-		switch ($response[0]) {
-			case Type::OPEN:
-			break;
-			case Type::CLOSE:
-			break;
-			case Type::PING:
-			break;
-			case Type::PONG:
-			break;
-			case Type::MESSAGE:
-			break;
-			case Type::UPGRADE:
-			break;
-			case Type::NOOP:
-			break;
-			default:
-				throw new \UnexpectedValueException("Error code.", 1);
-			break;
-		}
-		return json_decode(substr($response, 1) , true);
-	}
-	private function connect() {
-		$this->debug('[handshake] start');
-		$this->handshake();
-		$this->debug('[handshake] end');
-		//TODO heardbeat.
-		//ping, pong
-	}
-	private function handshake() {
-		switch ($this->transport) {
-			case 'polling':
-				$url = sprintf('%s://%s%s/?%s', $this->getSchema() , $this->host, $this->port, $this->path, http_build_query($this->getQueryParameters()));
-				$response = Curl::get($url, $this->getQueryParameters());
-			break;
-			case 'flashsocket': //TODO
-				throw new \UnexpectedValueException("not supported.", 1);
-			break;
-			case 'websocket':
-			default:
-				$this->key = $this->generateId();
-
-				switch ($this->socket_service) {
-					case 'Sockets':
-						$this->socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
-						$result = @socket_connect($this->socket, $this->host, $this->port);
-						if(!$result){
-							throw new \ErrorException("socket connect failed.", 1);
-						}
-						break;
-					case 'stream':
-					default:
-						$errors = [];
-						$this->socket = stream_socket_client($this->getHostUri() , $errors[0], $errors[1], $this->connection_timeout);
-						stream_set_blocking($this->socket, 1);
-						stream_set_timeout($this->socket, 0, $this->stream_wait_timeout);
-						break;
-				}
-				$this->write($this->buildHeaders());
-
-				//check if it's 101 switch
-				$expect = 'HTTP/1.1 101';
-				$length = strlen($expect);
-				$response=$this->read($length);
-				$compare = substr($response, 0, $length);
-				if ($expect !== $compare) {
-					throw new \UnexpectedValueException(sprintf('The server returned an unexpected value. Expected "HTTP/1.1 101", had "%s"', $compare));
-				}
-				$response=$this->read();
-				break;
-			}
-			$response = $this->parseResponse($response);
-			$this->sid = $response['sid'];
-			$this->pingInterval = $response['pingInterval'];
-			$this->pingTimeout = $response['pingTimeout'];
-	}
-	// private function heardbeat(){
-
-	// }
 	private function getContext() {
-		$Context = array(
-			'schema' => $this->getSchema() ,
-			'host' => $this->host,
-			'port' => $this->port,
-			'query' => $this->getQueryParameters() ,
-			'path' => $this->path,
+		$context = array(
+			'schema' => $this->buildSchema() ,
+			'host' => $this->options['host'],
+			'port' => $this->options['port'],
+			'query' => $this->buildQuery() ,
+			'path' => $this->options['path'],
 			'headers' => array(
-				'Host' => $this->host . ":" . $this->port,
+				'Host' => $this->options['host'] . ":" . $this->options['port'],
 				'Connection' => 'Upgrade',
 				// 'Pragma'=>'no-cache',
 				// 'Cache-Control'=>'no-cache',
-				
-				'Upgrade' => $this->transport,
-				'Origin' => "http://" . $this->host,
-				'User-Agent' => $this->user_agent,
+				'Upgrade' => $this->options['transport'],
+				'Origin' => "http://" . $this->options['host'],
+				'User-Agent' => $this->options['user_agent'],
 				// 'Accept-Encoding'=>'gzip, deflate, sdch',
 				// 'Accept-Language'=>'zh-TW,zh;q=0.8,en-US;q=0.6,en;q=0.4,zh-CN;q=0.2',
-				
 				'Sec-WebSocket-Version' => '13',
-				'Sec-WebSocket-Key' => $this->key,
-				// 'Sec-WebSocket-Extensions' => 'permessage-deflate; client_max_window_bits'
-				
-				
+				'Sec-WebSocket-Key' => $this->options['key'],
+				'Sec-WebSocket-Extensions' => 'permessage-deflate; client_max_window_bits'
 			)
 		);
-		if($this->sid){
-			$Context['headers']['Cookie']="io=" . $this->sid;
+		if (isset($this->options['sid'])) {
+			$context['headers']['Cookie']="io=" . $this->options['sid'];
 		}
-		return $Context;
+		return $context;
 	}
 	private function buildStreamContext() {
 		$context = $this->getContext();
 		$opt = array(
 			'http' => array(
 				'method' => 'GET',
-				'header' => implode("\r\n", array_map(function ($key, $value) {
-					return "$key: $value";
-				}
-				, array_keys($context['headers']) , $context['headers'])) ,
+				'header' => implode(
+					"\r\n",
+					array_map(function ($key, $value) {
+						return "$key: $value";
+					}, array_keys($context['headers']) , $context['headers'])
+				),
 				'timeout' => 10000
 			)
 		);
 		return stream_context_create($opt);
 	}
 	/**
-	 *
+	 * GET ws://localhost/engine.io/?EIO=3&transport=websocket&sid=6cGRGiGccx4-XG2cAAAA HTTP/1.1
+	 * Host: localhost
+	 * Connection: Upgrade
+	 * Pragma: no-cache
+	 * Cache-Control: no-cache
+	 * User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, * like Gecko) Chrome/77.0.3865.90 Safari/537.36
+	 * Upgrade: websocket
+	 * Origin: http://localhost
+	 * Sec-WebSocket-Version: 13
+	 * Accept-Encoding: gzip, deflate, br
+	 * Accept-Language: en,zh-CN;q=0.9,zh-TW;q=0.8,zh;q=0.7,ja;q=0.6
+	 * Cookie: i18n_redirected=us; PHPSESSID=778d8bee7a45a63cde1854bb3ae9cdf6; * id=63145c7aced1dfdb0d0749f6b686d67b; io=6cGRGiGccx4-XG2cAAAA
+	 * Sec-WebSocket-Key: 8AXnWFgobuVpN7emb/wuuw==
+	 * Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
 	 */
-	private function buildHeaders() {
+	private function buildWebsocketHeader() {
 		$context = $this->getContext();
-		// if Host is set, path couldn't include the host.
-		// $path = sprintf('%s://%s:%d%s/?%s', $context['scheme'], $context['host'], $context['port'], $context['path'], http_build_query($context['query']));
-		$path = sprintf('%s/?%s', $context['path'], http_build_query($context['query']));
-		
+		// Can't be with schema://host;port, if the Host exist
+		$path = sprintf(
+			// '%s://%s:%s%s%s',
+			'%s%s',
+			// $context['schema'],
+			// $context['host'],
+			// $context['port'],
+			$context['path'],
+			empty($context['query']) ? '' : '?' . http_build_query($context['query']),
+		);
+
 		$header = "GET " . $path . " HTTP/1.1\r\n";
-		$header.= implode("\r\n", array_map(function ($key, $value) {
-			return "$key: $value";
-		}
-		, array_keys($context['headers']) , $context['headers']));
+		$header.= implode(
+			"\r\n",
+			array_map(
+				function ($key, $value) {
+					return "$key: $value";
+				},
+				array_keys($context['headers']),
+				$context['headers']
+			)
+		);
 		$header.= "\r\n\r\n";
-		
 		return $header;
 	}
-	private function generateId($length = 16) {
-		// $c = 0;
-		// $tmp = '';
-		// while ($c++ * 16 < $length) {
-		// 	$tmp.= md5(mt_rand() , true);
-		// }
-		// return base64_encode(substr($tmp, 0, $length));
-		return base64_encode(sha1(uniqid(mt_rand() , true) , true));
+	/**
+	 * The key must be base64_encoded
+	 */
+	private function randomKey($length = 16) {
+        $hash = sha1(uniqid(mt_rand(), true), true);
+        if ($this->options['version'] !== 2) {
+            $hash = substr($hash, 0, $length);
+        }
+        return base64_encode($hash);
 	}
+	// private function randomId($length = 16) {
+	// 	$trim_chars = ['+', '/', '='];
+	// 	return substr(str_replace($trim_chars, '', base64_encode(random_bytes($length))), 0, $length);
+	// }
 }
-

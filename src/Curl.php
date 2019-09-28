@@ -1,15 +1,15 @@
 <?php
 
-namespace eio\Curl;
+namespace eio;
 
 class Curl {
 	//http://php.net/manual/en/function.curl-setopt.php
 	//http://stackoverflow.com/questions/16220172/php-curl-ssl-verifypeer-option-doesnt-have-effect
-	private static $default_options = array(
+	public static $default_options = array(
 		CURLOPT_RETURNTRANSFER => true,
 		CURLOPT_SSL_VERIFYPEER => false,
 		CURLOPT_SSL_VERIFYHOST => false,
-		CURLOPT_USERAGENT => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.89 Safari/537.36',
+		CURLOPT_USERAGENT => 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
 		CURLOPT_VERBOSE => false
 	);
 	private static $user_options = [];
@@ -27,7 +27,11 @@ class Curl {
 		curl_setopt($ch, CURLOPT_POST, true);
 		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($name));
 		if (!empty($params)) {
-			curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+			if (is_array($params)) {
+				curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+			} else {
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+			}
 		}
 		$output = curl_exec($ch);
 		curl_close($ch);
@@ -50,13 +54,17 @@ class Curl {
 		curl_close($ch);
 		return $output;
 	}
-	public static function post($url, array $params = array()) {
+	public static function post($url, $params = array()) {
 		$ch = curl_init();
 		curl_setopt($ch, CURLOPT_URL, $url);
 		self::_setOptions($ch);
 		curl_setopt($ch, CURLOPT_POST, true);
 		if (!empty($params)) {
-			curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+			if (is_array($params)) {
+				curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+			} else {
+				curl_setopt($ch, CURLOPT_POSTFIELDS, $params);
+			}
 		}
 		$output = curl_exec($ch);
 		curl_close($ch);

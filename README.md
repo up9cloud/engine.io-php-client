@@ -1,7 +1,19 @@
 # engine.io-php-client
-php communicate with engine.io server.
 
-## minimum client.
+The php client for [engine.io](https://github.com/socketio/engine.io).
+
+| version | engine.io version |
+| ------- | ----------------- |
+| v1      | v1                |
+| v2      | v2, v3            |
+
+## Installation
+
+```bash
+composer require up9cloud/engine.io-php-client
+```
+
+## Usage
 
 ```php
 require_once __DIR__.'/vendor/autoload.php';
@@ -14,14 +26,21 @@ $client->send(json_encode([
 ]));
 ```
 
-## debug minimum.
+### Advanced
 
 ```php
 require_once __DIR__.'/vendor/autoload.php';
 use eio\Client;
 
-$debug = function ($message, $time){
-	printf('%s: %f'.PHP_EOL, $message, $time);
+$options = [
+	// TODO: see src/Transport.php
+];
+// builtin debug method
+$debug = true;
+
+// custom debug method
+$debug = function ($time, $messages){
+	printf('[%.4f]: %s' . PHP_EOL, $time, $messages);
 };
-$client = new Client($uri, [], $debug);
+$client = new Client($uri, $options, $debug);
 ```

@@ -1,0 +1,5 @@
+{
+  "protocol": "ws",
+  "host": "node-server",
+  "port": 3000
+}

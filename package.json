@@ -1,0 +1,29 @@
+{
+  "name": "app",
+  "version": "0.0.1",
+  "description": "The php version client for [engine.io](https://github.com/socketio/engine.io).",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "debug": "^4.1.1",
+    "engine.io": "^3.4.0",
+    "engine.io-client": "^3.4.0"
+  },
+  "scripts": {
+    "dev": "npm i && node test/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/up9cloud/engine.io-php-client.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/up9cloud/engine.io-php-client/issues"
+  },
+  "homepage": "https://github.com/up9cloud/engine.io-php-client#readme"
+}
