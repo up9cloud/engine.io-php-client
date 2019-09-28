@@ -1,6 +1,6 @@
 {
     "name": "up9cloud/engine.io-php-client",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "description": "The php client for [engine.io](https://github.com/socketio/engine.io).",
     "keywords": ["websocket", "socket.io", "engine.io"],
     "require": {

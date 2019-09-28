@@ -5,7 +5,6 @@ require_once __DIR__.'/../vendor/autoload.php';
 use eio\Client;
 
 $config=json_decode(file_get_contents(__DIR__.'/config.json'), true);
-$uri = sprintf('%s://%s:%d', $config['protocol'], $config['host'], $config['port']);
 
 try {
 	foreach ([
@@ -13,6 +12,7 @@ try {
 		'stream_socket_create', // ok!
 		// 'fsockopen', // failed...
 	] as $method) {
+		$uri = sprintf('%s://%s:%d/engine.io', $config['protocol'], $config['host'], $config['port']);
 		$client = new Client($uri, ['connect_method' => $method], true);
 		$res = $client->send(json_encode([
 			'abc' => 123

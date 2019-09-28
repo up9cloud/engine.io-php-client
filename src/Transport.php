@@ -37,7 +37,7 @@ Class Transport implements TraspoterInterface{
 		'dsl' => null,
 		'host' => 'localhost',
 		'port' => 80,
-		'path' => '/engine.io/', // must be /engine.io/, can't be /engine.io
+		'path' => '/engine.io',
 		/**
 		 * socket_create: php extension "sockets"
 		 * stream_socket_create
@@ -359,11 +359,11 @@ Class Transport implements TraspoterInterface{
 		$query = $this->buildQuery();
 		$query['transport'] = 'polling';
 		return sprintf(
-			'%s://%s:%d%s%s',
+			'%s://%s:%d/%s/%s',
 			$this->options['is_secure'] ? 'https' : 'http',
 			$this->options['host'],
 			$this->options['port'],
-			$this->options['path'],
+			trim($this->options['path'], '/'),  // must be /engine.io/?xxx, can't be /engine.io?xxx
 			empty($query) ? '' : '?' . http_build_query($query)
 		);
 	}
@@ -448,12 +448,12 @@ Class Transport implements TraspoterInterface{
 		$context = $this->getContext();
 		// Can't be with schema://host;port, if the Host exist
 		$path = sprintf(
-			// '%s://%s:%s%s%s',
-			'%s%s',
+			// '%s://%s:%s/%s/%s',
+			'/%s/%s',
 			// $context['schema'],
 			// $context['host'],
 			// $context['port'],
-			$context['path'],
+			trim($context['path'], '/'),
 			empty($context['query']) ? '' : '?' . http_build_query($context['query']),
 		);
 
